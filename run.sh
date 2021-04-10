@@ -5,7 +5,7 @@
 # unzip iwslt2014_ende.zip
 
 # # Prepare vocab
-# python vocab.py \
+# python src/vocab.py \
 #     --train-src=data/train.de-en.de.wmixerprep \
 #     --train-tgt=data/train.de-en.en.wmixerprep \
 #     data/vocab.json
@@ -24,7 +24,7 @@ work_dir="work_dir"
 # echo "save results to ${work_dir}"
 
 # # training
-# python nmt.py \
+# python src/main.py \
 #     train \
 #     --cuda \
 #     --vocab ${vocab} \
@@ -45,7 +45,7 @@ work_dir="work_dir"
 #     --lr-decay 0.5 
 
 # # decoding
-# python nmt.py \
+# python src/main.py \
 #     decode \
 #     --cuda \
 #     --beam-size 10 \
@@ -54,16 +54,32 @@ work_dir="work_dir"
 #     ${test_src} \
 #     ${work_dir}/decode_10.txt
 
-# perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode_10.txt
+# perl ./src/multi-bleu.perl ${test_tgt} < ${work_dir}/decode_10.txt
 
 # # compare gt sentence log prob and decoded sentence log prob
-# python nmt.py compare --cuda ./work_dir/model.bin ./data/test.de-en.de.wmixerprep ./data/test.de-en.en.wmixerprep ./work_dir/decode_10.txt
+# python src/main.py compare --cuda ./work_dir/model.bin ./data/test.de-en.de.wmixerprep ./data/test.de-en.en.wmixerprep ./work_dir/decode_10.txt
 
-# opt-decoding
-python nmt.py \
-    opt-decode \
-    --cuda \
-    --max-decoding-time-step 100 \
-    ${work_dir}/model.bin \
-    ${test_src} \
-    ${work_dir}/decode_opt.txt
+# # opt-decoding
+# python src/main.py \
+#     opt-decode \
+#     --cuda \
+#     --opt-lr 0.01 \
+#     --opt-step 1000 \
+#     --ent-reg 5.0 \
+#     --max-decoding-time-step 100 \
+#     ${work_dir}/model.bin \
+#     ${test_src} \
+#     ${work_dir}/decode_opt.txt
+
+# # inspect
+# python src/main.py \
+#     opt-decode \
+#     --cuda \
+#     --opt-lr 0.01 \
+#     --opt-step 1000 \
+#     --ent-reg 5.0 \
+#     --max-decoding-time-step 3 \
+#     ${work_dir}/model.bin \
+#     data/test.de-en.de.wmixerprep \
+#     data/test.de-en.en.wmixerprep \
+#     ${work_dir}/decode_opt.txt

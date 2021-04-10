@@ -1,4 +1,7 @@
+# -*- coding: utf-8 -*-
 #!/usr/bin/env python
+
+
 """
 Usage:
     vocab.py --train-src=<file> --train-tgt=<file> [options] VOCAB_FILE
@@ -11,14 +14,16 @@ Options:
     --freq-cutoff=<int>        frequency cutoff [default: 2]
 """
 
-from typing import List
+
+import json
 from collections import Counter
 from itertools import chain
-from docopt import docopt
-import json
-import torch
+from typing import List
 
-from utils import read_corpus, input_transpose
+import torch
+from docopt import docopt
+
+from utils import input_transpose, read_corpus
 
 
 class VocabEntry(object):

@@ -1,10 +1,16 @@
+# -*- coding: utf-8 -*-
+
+
 import math
-from typing import List
+from collections import namedtuple
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 
 
 def input_transpose(sents, pad_token):
