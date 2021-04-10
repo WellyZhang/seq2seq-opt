@@ -1,14 +1,14 @@
 #!/bin/sh
 
-# Download and unzip data
-wget http://www.cs.cmu.edu/~pengchey/iwslt2014_ende.zip
-unzip iwslt2014_ende.zip
+# # Download and unzip data
+# wget http://www.cs.cmu.edu/~pengchey/iwslt2014_ende.zip
+# unzip iwslt2014_ende.zip
 
-# Prepare vocab
-python vocab.py \
-    --train-src=data/train.de-en.de.wmixerprep \
-    --train-tgt=data/train.de-en.en.wmixerprep \
-    data/vocab.json
+# # Prepare vocab
+# python vocab.py \
+#     --train-src=data/train.de-en.de.wmixerprep \
+#     --train-tgt=data/train.de-en.en.wmixerprep \
+#     data/vocab.json
 
 vocab="data/vocab.json"
 train_src="data/train.de-en.de.wmixerprep"
@@ -20,38 +20,50 @@ test_tgt="data/test.de-en.en"
 
 work_dir="work_dir"
 
-mkdir -p ${work_dir}
-echo "save results to ${work_dir}"
+# mkdir -p ${work_dir}
+# echo "save results to ${work_dir}"
 
-# training
-python nmt.py \
-    train \
-    --cuda \
-    --vocab ${vocab} \
-    --train-src ${train_src} \
-    --train-tgt ${train_tgt} \
-    --dev-src ${dev_src} \
-    --dev-tgt ${dev_tgt} \
-    --input-feed \
-    --valid-niter 2400 \
-    --batch-size 64 \
-    --hidden-size 256 \
-    --embed-size 256 \
-    --uniform-init 0.1 \
-    --label-smoothing 0.1 \
-    --dropout 0.2 \
-    --clip-grad 5.0 \
-    --save-to ${work_dir}/model.bin \
-    --lr-decay 0.5 
+# # training
+# python nmt.py \
+#     train \
+#     --cuda \
+#     --vocab ${vocab} \
+#     --train-src ${train_src} \
+#     --train-tgt ${train_tgt} \
+#     --dev-src ${dev_src} \
+#     --dev-tgt ${dev_tgt} \
+#     --input-feed \
+#     --valid-niter 2400 \
+#     --batch-size 64 \
+#     --hidden-size 256 \
+#     --embed-size 256 \
+#     --uniform-init 0.1 \
+#     --label-smoothing 0.1 \
+#     --dropout 0.2 \
+#     --clip-grad 5.0 \
+#     --save-to ${work_dir}/model.bin \
+#     --lr-decay 0.5 
 
-# decoding
+# # decoding
+# python nmt.py \
+#     decode \
+#     --cuda \
+#     --beam-size 10 \
+#     --max-decoding-time-step 100 \
+#     ${work_dir}/model.bin \
+#     ${test_src} \
+#     ${work_dir}/decode_10.txt
+
+# perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode_10.txt
+
+# # compare gt sentence log prob and decoded sentence log prob
+# python nmt.py compare --cuda ./work_dir/model.bin ./data/test.de-en.de.wmixerprep ./data/test.de-en.en.wmixerprep ./work_dir/decode_10.txt
+
+# opt-decoding
 python nmt.py \
-    decode \
+    opt-decode \
     --cuda \
-    --beam-size 5 \
     --max-decoding-time-step 100 \
     ${work_dir}/model.bin \
     ${test_src} \
-    ${work_dir}/decode.txt
-
-perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.txt
+    ${work_dir}/decode_opt.txt

@@ -7,6 +7,9 @@ Usage:
     nmt.py train --train-src=<file> --train-tgt=<file> --dev-src=<file> --dev-tgt=<file> --vocab=<file> [options]
     nmt.py decode [options] MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
     nmt.py decode [options] MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
+    nmt.py compare [options] MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE TEST_GEN_FILE
+    nmt.py opt-decode [options] MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
+    nmt.py opt-decode [options] MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
 
 Options:
     -h --help                               show this screen.
@@ -474,6 +477,60 @@ class NMT(nn.Module):
                 completed_samples[src_sent_id][sample_id] = hyp
 
         return completed_samples
+    
+    def opt_search(self, src_sent: List[str], chunk_size: int=3, max_decoding_time_step: int=70) -> List[str]:
+        hypothesis = ['<s>']
+        src_sents_var = self.vocab.src.to_input_tensor([src_sent], self.device)
+
+        src_encodings, dec_init_vec = self.encode(src_sents_var, [len(src_sent)])
+        src_encodings_att_linear = self.att_src_linear(src_encodings)
+
+        h_tm1 = dec_init_vec
+        att_tm1 = torch.zeros(1, self.hidden_size, device=self.device)
+
+        y_tm1 = torch.tensor([self.vocab.tgt[hypothesis[-1]]], dtype=torch.long, device=self.device)
+        y_tm1_embed = self.tgt_embed(y_tm1)
+        t = 0
+        while t < max_decoding_time_step:
+            t += chunk_size
+            opt_var = torch.zeros(1, chunk_size, len(self.vocab.tgt), device=self.device, requires_grad=True)
+            optimizer = torch.optim.Adam([opt_var], lr=1)
+            for _ in range(10):
+                loss = 0.0
+                prob_var = F.softmax(opt_var, dim=2)
+                for i in range(chunk_size):
+                    if self.input_feed:
+                        x = torch.cat([y_tm1_embed, att_tm1], dim=-1)
+                    else:
+                        x = y_tm1_embed
+
+                    (h_t, cell_t), att_t, alpha_t = self.step(x, h_tm1,
+                                                              src_encodings, src_encodings_att_linear, src_sent_masks=None)
+
+                    # probabilities over target words
+                    p_t = F.softmax(self.readout(att_t), dim=-1)
+                    loss += -torch.log(prob_var[:, i, :] @ p_t.t())
+                    y_tm1_embed = prob_var[:, i, :] @ self.tgt_embed.weight
+                    att_tm1 = att_t
+                    h_tm1 = (h_t, cell_t)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                y_tm1_embed = y_tm1_embed.detach()
+                att_tm1 = att_tm1.detach()
+                h_tm1 = (h_tm1[0].detach(), h_tm1[1].detach())
+            print(loss.item())
+            print(torch.max(F.softmax(opt_var, dim=2), dim=-1))
+            _, top_idx = torch.topk(opt_var, k=1, dim=-1)
+            for idx in top_idx[0]:
+                hyp_word = self.vocab.tgt.id2word[idx.item()]
+                if hyp_word == '</s>':
+                    return hypothesis
+                else:
+                    hypothesis.append(hyp_word)
+            print(hypothesis)
+        return hypothesis
+
 
     @staticmethod
     def load(model_path: str):
@@ -763,6 +820,91 @@ def decode(args: Dict[str, str]):
             f.write(hyp_sent + '\n')
 
 
+def compare(args):
+    print(f"load test source sentences from [{args['TEST_SOURCE_FILE']}]", file=sys.stderr)
+    test_data_src = read_corpus(args['TEST_SOURCE_FILE'], source='src')
+    print(f"load test target sentences from [{args['TEST_TARGET_FILE']}]", file=sys.stderr)
+    test_data_tgt = read_corpus(args['TEST_TARGET_FILE'], source='tgt')
+    print(f"load test generated sentences from [{args['TEST_GEN_FILE']}]", file=sys.stderr)
+    test_data_gen = read_corpus(args['TEST_GEN_FILE'], source='tgt')
+
+    print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
+    model = NMT.load(args['MODEL_PATH'])
+
+    if args['--cuda']:
+        model = model.to(torch.device("cuda:0"))
+
+    model.eval()
+    count = 0
+    src_sent = test_data_src[2]
+
+    with torch.no_grad():
+        for i in tqdm(range(len(test_data_src))):
+        # for i in [2]:
+            src_sent = test_data_src[i]
+            tgt_sent = test_data_tgt[i]
+            gen_sent = test_data_gen[i]
+            # print(tgt_sent[:11], gen_sent[:11])
+            tgt_sent_log_prob = model([src_sent], [tgt_sent]).item()
+            gen_sent_log_prob = model([src_sent], [gen_sent]).item()
+            if tgt_sent_log_prob > gen_sent_log_prob:
+                count += 1
+            # print(tgt_sent_log_prob, gen_sent_log_prob)
+    print(f"probability of samples with imperfect decoding [{count / len(test_data_src)}]")
+
+
+def opt_search(model: NMT, test_data_src: List[List[str]], chunk_size: int, max_decoding_time_step: int) -> List[List[str]]:
+    was_training = model.training
+    model.eval()
+
+    for p in model.parameters():
+        p.requires_grad_(False)
+
+    hypotheses = []
+    for src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
+        print(src_sent)
+        hyp = model.opt_search(src_sent, chunk_size=chunk_size, max_decoding_time_step=max_decoding_time_step)
+
+        hypotheses.append(hyp)
+
+    if was_training: model.train(was_training)
+
+    return hypotheses
+
+
+def opt_decode(args: Dict[str, str]):
+    """
+    performs opt-decoding on a test set, and save the decoding results.
+    If the target gold-standard sentences are given, the function also computes
+    corpus-level BLEU score.
+    """
+
+    print(f"load test source sentences from [{args['TEST_SOURCE_FILE']}]", file=sys.stderr)
+    test_data_src = read_corpus(args['TEST_SOURCE_FILE'], source='src')
+    if args['TEST_TARGET_FILE']:
+        print(f"load test target sentences from [{args['TEST_TARGET_FILE']}]", file=sys.stderr)
+        test_data_tgt = read_corpus(args['TEST_TARGET_FILE'], source='tgt')
+
+    print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
+    model = NMT.load(args['MODEL_PATH'])
+
+    if args['--cuda']:
+        model = model.to(torch.device("cuda:0"))
+
+    hypotheses = opt_search(model, test_data_src[2:3],
+                            chunk_size=3,
+                            max_decoding_time_step=int(args['--max-decoding-time-step']))
+
+    if args['TEST_TARGET_FILE']:
+        bleu_score = compute_corpus_level_bleu_score(test_data_tgt, hypotheses)
+        print(f'Corpus BLEU: {bleu_score}', file=sys.stderr)
+
+    with open(args['OUTPUT_FILE'], 'w') as f:
+        for src_sent, hyp in zip(test_data_src, hypotheses):
+            hyp_sent = ' '.join(hyp)
+            f.write(hyp_sent + '\n')
+
+
 def main():
     args = docopt(__doc__)
 
@@ -777,6 +919,10 @@ def main():
         train(args)
     elif args['decode']:
         decode(args)
+    elif args['compare']:
+        compare(args)
+    elif args['opt-decode']:
+        opt_decode(args)
     else:
         raise RuntimeError(f'invalid run mode')
 
