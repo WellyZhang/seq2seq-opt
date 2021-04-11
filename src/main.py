@@ -1,17 +1,16 @@
 # -*- coding: utf-8 -*-
-#!/usr/bin/env python
 
 
 """
 A very basic implementation of neural machine translation
 
 Usage:
-    nmt.py train --train-src=<file> --train-tgt=<file> --dev-src=<file> --dev-tgt=<file> --vocab=<file> [options]
-    nmt.py decode [options] MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
-    nmt.py decode [options] MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
-    nmt.py compare [options] MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE TEST_GEN_FILE
-    nmt.py opt-decode [options] MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
-    nmt.py opt-decode [options] MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
+    main.py train --train-src=<file> --train-tgt=<file> --dev-src=<file> --dev-tgt=<file> --vocab=<file> [options]
+    main.py decode [options] MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
+    main.py decode [options] MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
+    main.py compare [options] MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE TEST_GEN_FILE
+    main.py opt-decode [options] MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
+    main.py opt-decode [options] MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
 
 Options:
     -h --help                               show this screen.
@@ -41,10 +40,10 @@ Options:
     --valid-niter=<int>                     perform validation after how many iterations [default: 2000]
     --dropout=<float>                       dropout [default: 0.3]
     --max-decoding-time-step=<int>          maximum number of decoding time steps [default: 70]
-    --chunk-size                            size of optimization chunk [default: 3]
-    --opt-lr                                learning rate of the opt-decode method [default: 0.01]
-    --opt-step                              number of steps to run the optimizer [default: 100]
-    --ent-reg                               coefficient of the entropy regularization [default: 5.0]
+    --chunk-size=<int>                       size of optimization chunk [default: 3]
+    --opt-lr=<float>                         learning rate of the opt-decode method [default: 0.01]
+    --opt-step=<int>                         number of steps to run the optimizer [default: 100]
+    --ent-reg=<float>                        coefficient of the entropy regularization [default: 5.0]
 """
 
 
@@ -345,6 +344,7 @@ def compare(args):
     if args['--cuda']:
         model = model.to(torch.device("cuda:0"))
 
+    model.label_smoothing = 0.0
     model.eval()
     count = 0
     src_sent = test_data_src[2]
@@ -459,24 +459,31 @@ def inspect():
 
     if args['--cuda']:
         model = model.to(torch.device("cuda:0"))
-    src_sent = test_data_src[2]
-    tgt_sent = test_data_tgt[2]
+    src_sent = test_data_src[3]
+    tgt_sent = test_data_tgt[3]
 
+    model.label_smoothing = 0.0
     model.eval()
     for p in model.parameters():
         p.requires_grad_(False)
 
+    chunk_size = int(args['--chunk-size'])
+    tgt_sent_chunk = tgt_sent[:chunk_size + 1] + ['</s>']
+
     print(f"Source sentence: [{src_sent}]")
-    print(f"Target sentence: [{tgt_sent[:int(args['--chunk-size'])]}]")
-    gold_val = model(src_sent, tgt_sent[:int(args['--chunk-size'])])
+    print(f"Target sentence: [{tgt_sent}]")
+    print(f"Target sentence chunk: [{tgt_sent_chunk}]")
+    gold_val = model([src_sent], [tgt_sent], test=True)
     print(f"Gold val: [{gold_val}]")
     hyp = model.opt_search(src_sent, 
-                           chunk_size=int(args['--chunk-size']), 
+                           chunk_size=chunk_size, 
                            opt_lr=float(args['--opt-lr']),
                            opt_step=int(args['--opt-step']),
                            ent_reg=float(args['--ent-reg']),
-                           max_decoding_time_step=int(args['--max_decoding_time_step']))
-
+                           max_decoding_time_step=int(args['--max-decoding-time-step']))
+    print(hyp)
+    opt_val = model([src_sent], [hyp + ['</s>']], test=True)
+    print(f"Opt val: [{opt_val}]")
 
 if __name__ == '__main__':
     # main()

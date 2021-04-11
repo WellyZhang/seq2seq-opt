@@ -52,12 +52,18 @@ work_dir="work_dir"
 #     --max-decoding-time-step 100 \
 #     ${work_dir}/model.bin \
 #     ${test_src} \
-#     ${work_dir}/decode_10.txt
+#     ${work_dir}/decode_bs10.txt
 
-# perl ./src/multi-bleu.perl ${test_tgt} < ${work_dir}/decode_10.txt
+# perl ./src/multi-bleu.perl ${test_tgt} < ${work_dir}/decode_bs10.txt
 
 # # compare gt sentence log prob and decoded sentence log prob
-# python src/main.py compare --cuda ./work_dir/model.bin ./data/test.de-en.de.wmixerprep ./data/test.de-en.en.wmixerprep ./work_dir/decode_10.txt
+# python src/main.py \
+#     compare \
+#     --cuda \
+#     ./work_dir/model.bin \
+#     ./data/test.de-en.de.wmixerprep \
+#     ./data/test.de-en.en.wmixerprep \
+#     ./work_dir/decode_bs10.txt
 
 # # opt-decoding
 # python src/main.py \
@@ -71,15 +77,16 @@ work_dir="work_dir"
 #     ${test_src} \
 #     ${work_dir}/decode_opt.txt
 
-# # inspect
-# python src/main.py \
-#     opt-decode \
-#     --cuda \
-#     --opt-lr 0.01 \
-#     --opt-step 1000 \
-#     --ent-reg 5.0 \
-#     --max-decoding-time-step 3 \
-#     ${work_dir}/model.bin \
-#     data/test.de-en.de.wmixerprep \
-#     data/test.de-en.en.wmixerprep \
-#     ${work_dir}/decode_opt.txt
+# inspect
+python src/main.py \
+    opt-decode \
+    --cuda \
+    --chunk-size 2 \
+    --opt-lr 0.5 \
+    --opt-step 2000 \
+    --ent-reg 3.0 \
+    --max-decoding-time-step 100 \
+    ${work_dir}/model.bin \
+    ./data/test.de-en.de.wmixerprep \
+    ./work_dir/decode_greedy.txt \
+    ${work_dir}/decode_opt.txt

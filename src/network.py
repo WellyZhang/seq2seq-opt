@@ -59,7 +59,7 @@ class NMT(nn.Module):
     def device(self) -> torch.device:
         return self.src_embed.weight.device
 
-    def forward(self, src_sents: List[List[str]], tgt_sents: List[List[str]]) -> torch.Tensor:
+    def forward(self, src_sents: List[List[str]], tgt_sents: List[List[str]], test: bool=False) -> torch.Tensor:
         """
         take a mini-batch of source and target sentences, compute the log-likelihood of
         target sentences.
@@ -102,7 +102,10 @@ class NMT(nn.Module):
             tgt_gold_words_log_prob = torch.gather(tgt_words_log_prob, index=tgt_sents_var[1:].unsqueeze(-1), dim=-1).squeeze(-1) * tgt_words_mask[1:]
 
         # (batch_size)
-        scores = tgt_gold_words_log_prob.sum(dim=0)
+        if not test:
+            scores = tgt_gold_words_log_prob.sum(dim=0)
+        else:
+            scores = torch.sum(tgt_gold_words_log_prob[:-1, :], dim=0)
 
         return scores
 
@@ -425,25 +428,28 @@ class NMT(nn.Module):
 
         return completed_samples
     
-    def opt_search(self, src_sent: List[str], chunk_size: int=3, opt_lr: float=0.01, opt_step: int=1000, ent_reg: float=0.01, max_decoding_time_step: int=70) -> List[str]:
+    def opt_search(self, src_sent: List[str], chunk_size: int=3, opt_lr: float=0.01, opt_step: int=1000, ent_reg: float=5, max_decoding_time_step: int=70) -> List[str]:
         hypothesis = ['<s>']
         src_sents_var = self.vocab.src.to_input_tensor([src_sent], self.device)
 
         src_encodings, dec_init_vec = self.encode(src_sents_var, [len(src_sent)])
         src_encodings_att_linear = self.att_src_linear(src_encodings)
 
-        h_tm1 = dec_init_vec
-        att_tm1 = torch.zeros(1, self.hidden_size, device=self.device)
+        h_tm1_orig = dec_init_vec
+        att_tm1_orig = torch.zeros(1, self.hidden_size, device=self.device)
 
         y_tm1 = torch.tensor([self.vocab.tgt[hypothesis[-1]]], dtype=torch.long, device=self.device)
-        y_tm1_embed = self.tgt_embed(y_tm1)
+        y_tm1_embed_orig = self.tgt_embed(y_tm1)
         t = 0
         while t < max_decoding_time_step:
             t += chunk_size
             opt_var = torch.zeros(1, chunk_size, len(self.vocab.tgt), device=self.device, requires_grad=True)
             optimizer = torch.optim.Adam([opt_var], lr=opt_lr)
             for _ in range(opt_step):
-                loss = 0.0
+                obj = 0.0
+                h_tm1 = h_tm1_orig
+                att_tm1 = att_tm1_orig
+                y_tm1_embed = y_tm1_embed_orig
                 prob_var = F.softmax(opt_var, dim=2)
                 for i in range(chunk_size):
                     if self.input_feed:
@@ -456,27 +462,56 @@ class NMT(nn.Module):
 
                     # probabilities over target words
                     p_t = F.softmax(self.readout(att_t), dim=-1)
-                    loss += -torch.log(prob_var[:, i, :] @ p_t.t())
+                    obj += torch.log(prob_var[:, i, :] @ p_t.t())
                     y_tm1_embed = prob_var[:, i, :] @ self.tgt_embed.weight
                     att_tm1 = att_t
                     h_tm1 = (h_t, cell_t)
+                loss = -obj
                 # compute entropy
-                ent = -torch.sum(prob_var * torch.log(prob_var), dim=-1)
+                ent = -torch.sum(torch.sum(prob_var * torch.log(prob_var), dim=-1), dim=-1)
                 # minimize entropy
                 loss += ent_reg * ent
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-                y_tm1_embed = y_tm1_embed.detach()
-                att_tm1 = att_tm1.detach()
-                h_tm1 = (h_tm1[0].detach(), h_tm1[1].detach())
+            print(obj)
+            print(torch.max(F.softmax(opt_var, dim=2), dim=2))
             _, top_idx = torch.topk(opt_var, k=1, dim=-1)
+
+            h_tm1 = h_tm1_orig
+            att_tm1 = att_tm1_orig
+            y_tm1_embed = y_tm1_embed_orig
+            if self.input_feed:
+                x = torch.cat([y_tm1_embed, att_tm1], dim=-1)
+            else:
+                x = y_tm1_embed
+            (h_t, cell_t), att_t, alpha_t = self.step(x, h_tm1,
+                                                        src_encodings, src_encodings_att_linear, src_sent_masks=None)
+            att_tm1 = att_t
+            h_tm1 = (h_t, cell_t)
             for idx in top_idx[0]:
                 hyp_word = self.vocab.tgt.id2word[idx.item()]
                 if hyp_word == '</s>':
                     return hypothesis[1:]
                 else:
                     hypothesis.append(hyp_word)
+                    y_tm1 = torch.tensor([self.vocab.tgt[hypothesis[-1]]], dtype=torch.long, device=self.device)
+                    y_tm1_embed = self.tgt_embed(y_tm1)
+                    if self.input_feed:
+                        x = torch.cat([y_tm1_embed, att_tm1], dim=-1)
+                    else:
+                        x = y_tm1_embed
+
+                    (h_t, cell_t), att_t, alpha_t = self.step(x, h_tm1,
+                                                              src_encodings, src_encodings_att_linear, src_sent_masks=None)
+                    
+                    h_tm1_orig = h_tm1
+                    att_tm1_orig = att_tm1
+                    att_tm1 = att_t
+                    h_tm1 = (h_t, cell_t)
+            h_tm1_orig = (h_tm1_orig[0].detach(), h_tm1_orig[1].detach())
+            att_tm1_orig = att_tm1_orig.detach()
+            y_tm1_embed_orig = y_tm1_embed.detach()
         return hypothesis
 
 
