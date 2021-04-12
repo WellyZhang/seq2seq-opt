@@ -37,3 +37,5 @@ Pip install requirements and see ```run.sh``` for reference. As the idea does no
 ## Acknowledgement
 
 The work cannot be done without the help of the open-source basic neural machine translation [codebase](https://github.com/pcyin/pytorch_basic_nmt).
+
+If you make a similar idea work, it would be greatly appreciated if you could let me know.
