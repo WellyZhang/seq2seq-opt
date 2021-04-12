@@ -48,13 +48,13 @@ work_dir="work_dir"
 # python src/main.py \
 #     decode \
 #     --cuda \
-#     --beam-size 10 \
+#     --beam-size 1 \
 #     --max-decoding-time-step 100 \
 #     ${work_dir}/model.bin \
 #     ${test_src} \
-#     ${work_dir}/decode_bs10.txt
+#     ${work_dir}/decode_greedy.txt
 
-# perl ./src/multi-bleu.perl ${test_tgt} < ${work_dir}/decode_bs10.txt
+# perl ./src/multi-bleu.perl ${test_tgt} < ${work_dir}/decode_greedy.txt
 
 # # compare gt sentence log prob and decoded sentence log prob
 # python src/main.py \
@@ -63,7 +63,7 @@ work_dir="work_dir"
 #     ./work_dir/model.bin \
 #     ./data/test.de-en.de.wmixerprep \
 #     ./data/test.de-en.en.wmixerprep \
-#     ./work_dir/decode_bs10.txt
+#     ./work_dir/decode_greedy.txt
 
 # # opt-decoding
 # python src/main.py \

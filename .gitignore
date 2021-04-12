@@ -136,3 +136,6 @@ data/
 
 # Model
 work_dir
+
+# MacOS
+.DS_Store
